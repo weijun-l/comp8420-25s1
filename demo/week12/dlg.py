@@ -97,8 +97,8 @@ def text_gradient_leakage(model, origin_grad, true_label, tokenizer, max_length=
             # Compute loss using known true label
             dummy_loss = criterion(logits, dummy_label)
             
-            # Compute gradients
-            dummy_grad = grad(dummy_loss, model.parameters(), create_graph=True)
+            # Compute gradients with allow_unused=True (FIX HERE!)
+            dummy_grad = grad(dummy_loss, model.parameters(), create_graph=True, allow_unused=True)
             
             # Calculate gradient difference (this is what we minimize)
             grad_diff = compute_gradient_difference(dummy_grad, origin_grad)
