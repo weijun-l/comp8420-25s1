@@ -1,18 +1,13 @@
 import torch
+import torch.nn.functional as F
 from torch.autograd import grad
+from transformers import AutoModelForSequenceClassification, AutoTokenizer
 import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity
 
 def find_closest_tokens(embeddings, word_embedding_matrix):
     """
     Find the closest tokens in vocabulary for given embeddings using cosine similarity
-    
-    Args:
-        embeddings: tensor of shape (batch_size, seq_len, hidden_size)
-        word_embedding_matrix: model's word embedding matrix
-    
-    Returns:
-        token_ids: tensor of reconstructed token IDs
     """
     batch_size, seq_len, hidden_size = embeddings.shape
     reconstructed_ids = []
@@ -36,13 +31,6 @@ def find_closest_tokens(embeddings, word_embedding_matrix):
 def compute_gradient_difference(dummy_grad, origin_grad):
     """
     Compute the L2 difference between dummy gradients and original gradients
-    
-    Args:
-        dummy_grad: gradients from dummy data
-        origin_grad: gradients from original data
-    
-    Returns:
-        grad_diff: scalar tensor representing gradient difference
     """
     grad_diff = 0
     for dummy_g, origin_g in zip(dummy_grad, origin_grad):
@@ -50,28 +38,16 @@ def compute_gradient_difference(dummy_grad, origin_grad):
             grad_diff += ((dummy_g - origin_g) ** 2).sum()
     return grad_diff
 
-def text_gradient_leakage(model, origin_grad, true_label, tokenizer, max_length=64, num_iterations=200):
+def text_gradient_leakage(model, origin_grad, true_label, tokenizer, input_length, num_iterations=150):
     """
     Reconstruct text from gradients using Deep Leakage from Gradients method
-    Assumes the attacker knows the true label (realistic for binary classification)
-    
-    Args:
-        model: BERT model
-        origin_grad: original gradients to match
-        true_label: the actual label (attacker can try both 0 and 1 for binary classification)
-        tokenizer: BERT tokenizer
-        max_length: maximum sequence length
-        num_iterations: number of optimization iterations
-    
-    Returns:
-        reconstructed_text: reconstructed text string
-        final_embeddings: final optimized embeddings
+    Uses the exact same length as the input sentence (no padding)
     """
     device = next(model.parameters()).device
     
-    # Initialize dummy embeddings (continuous optimization space)
+    # Initialize dummy embeddings with the same length as input
     dummy_embeds = torch.randn(
-        1, max_length, model.config.hidden_size, 
+        1, input_length, model.config.hidden_size, 
         requires_grad=True, device=device
     )
     
@@ -84,7 +60,7 @@ def text_gradient_leakage(model, origin_grad, true_label, tokenizer, max_length=
     # Loss function
     criterion = torch.nn.CrossEntropyLoss()
     
-    print("Starting gradient-based text reconstruction...")
+    print(f"Starting gradient-based text reconstruction for {input_length} tokens...")
     
     for iteration in range(num_iterations):
         def closure():
@@ -97,7 +73,7 @@ def text_gradient_leakage(model, origin_grad, true_label, tokenizer, max_length=
             # Compute loss using known true label
             dummy_loss = criterion(logits, dummy_label)
             
-            # Compute gradients with allow_unused=True (FIX HERE!)
+            # Compute gradients with allow_unused=True
             dummy_grad = grad(dummy_loss, model.parameters(), create_graph=True, allow_unused=True)
             
             # Calculate gradient difference (this is what we minimize)
